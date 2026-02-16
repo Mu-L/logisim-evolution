@@ -527,8 +527,9 @@ public class Startup implements AWTEventListener {
 
     final var pair = new MutablePair<File, String>();
     pair.left = new File(optArgs[0]);
-    if (argsCnt == 2)
+    if (argsCnt == 2) {
       pair.right = optArgs[1];
+    }
 
     startup.memoriesToLoad.add(pair);
     return RC.OK;
