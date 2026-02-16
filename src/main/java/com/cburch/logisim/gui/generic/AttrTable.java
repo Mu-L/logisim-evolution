@@ -27,6 +27,8 @@ import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.awt.event.FocusEvent;
 import java.awt.event.FocusListener;
+import java.awt.event.KeyEvent;
+import java.awt.event.MouseEvent;
 import java.util.ArrayList;
 import java.util.EventObject;
 import java.util.LinkedList;
@@ -223,6 +225,7 @@ public class AttrTable extends JPanel implements LocaleListener {
     int[] currentRowIndexes;
     Component currentEditor;
     boolean multiEditActive = false;
+    boolean stoppedCellEditing = false;
 
     //
     // ActionListener methods
@@ -300,7 +303,6 @@ public class AttrTable extends JPanel implements LocaleListener {
       }
     }
 
-    @SuppressWarnings("rawtypes")
     @Override
     public Object getCellEditorValue() {
       // Returns the value contained in the editor.
@@ -314,7 +316,6 @@ public class AttrTable extends JPanel implements LocaleListener {
       }
     }
 
-    @SuppressWarnings("rawtypes")
     @Override
     public Component getTableCellEditorComponent(JTable table, Object value, boolean isSelected, int rowIndex, int columnIndex) {
       final var attrModel = tableModel.attrModel;
@@ -398,7 +399,15 @@ public class AttrTable extends JPanel implements LocaleListener {
 
     @Override
     public boolean isCellEditable(EventObject anEvent) {
-      // Asks the editor if it can start editing using anEvent.
+      if (anEvent instanceof KeyEvent) {
+        if (((KeyEvent) anEvent).getKeyCode() == KeyEvent.VK_SPACE) {
+          return true;
+        }
+        return false;
+      }
+      if (anEvent instanceof MouseEvent) {
+        return ((MouseEvent) anEvent).getClickCount() >= 1;
+      }
       return true;
     }
 
@@ -419,7 +428,12 @@ public class AttrTable extends JPanel implements LocaleListener {
     public boolean stopCellEditing() {
       // Tells the editor to stop editing and accept any partially
       // edited value as the value of the editor.
+      if (stoppedCellEditing) {
+        return false;
+      }
+      stoppedCellEditing = true;
       fireEditingStopped();
+      stoppedCellEditing = false;
       return true;
     }
   }

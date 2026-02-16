@@ -14,10 +14,8 @@ import static com.cburch.logisim.analyze.Strings.S;
 import com.cburch.logisim.analyze.file.AnalyzerTexWriter;
 import com.cburch.logisim.analyze.model.AnalyzerModel;
 import com.cburch.logisim.analyze.model.Implicant;
-import com.cburch.logisim.analyze.model.Parser;
 import com.cburch.logisim.analyze.model.TruthTableEvent;
 import com.cburch.logisim.analyze.model.TruthTableListener;
-import com.cburch.logisim.analyze.model.Var;
 import com.cburch.logisim.gui.generic.LFrame;
 import com.cburch.logisim.prefs.AppPreferences;
 import com.cburch.logisim.util.LocaleListener;
@@ -26,7 +24,6 @@ import java.awt.BorderLayout;
 import java.awt.Dimension;
 import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;
-import java.util.ArrayList;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import javax.swing.JComponent;
@@ -38,7 +35,6 @@ import javax.swing.JScrollPane;
 import javax.swing.JTabbedPane;
 import javax.swing.ScrollPaneConstants;
 import javax.swing.SwingWorker;
-import javax.swing.WindowConstants;
 import javax.swing.event.ChangeEvent;
 import javax.swing.event.ChangeListener;
 
@@ -131,34 +127,6 @@ public class Analyzer extends LFrame.SubWindow {
               && (nrOfInputs <= Implicant.MAXIMAL_NR_OF_INPUTS_FOR_AUTO_MINIMAL_FORM));
       ioPanel.updateTab();
     }
-  }
-
-  public static void main(String[] args) throws Exception {
-    final var frame = new Analyzer();
-    final var model = frame.getModel();
-
-    if (args.length >= 2) {
-      final var inputs = new ArrayList<Var>();
-      final var outputs = new ArrayList<Var>();
-      for (String s : args[0].split(",")) inputs.add(Var.parse(s));
-      for (String s : args[1].split(",")) outputs.add(Var.parse(s));
-      model.setVariables(inputs, outputs);
-    }
-    for (var i = 2; i < args.length; i++) {
-      final var s = args[i];
-      final var idx = s.indexOf('=');
-      if (idx >= 0) {
-        final var name = s.substring(0, idx);
-        final var exprString = s.substring(idx + 1);
-        final var expr = Parser.parse(exprString, model);
-        model.getOutputExpressions().setExpression(name, expr, exprString);
-      } else {
-        Parser.parse(s, model); // for testing Parser.parse
-      }
-    }
-    frame.setDefaultCloseOperation(WindowConstants.EXIT_ON_CLOSE);
-    frame.pack();
-    frame.setVisible(true);
   }
 
   private static final long serialVersionUID = 1L;

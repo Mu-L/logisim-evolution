@@ -286,11 +286,13 @@ public class AppPreferences {
   }
 
   public static void handleGraphicsAcceleration() {
+    final var accel = GRAPHICS_ACCELERATION.get();
     try {
-      final var accel = GRAPHICS_ACCELERATION.get();
       System.setProperty("sun.java2d.opengl", Boolean.toString(accel.equals(ACCEL_OPENGL)));
       System.setProperty("sun.java2d.d3d", Boolean.toString(accel.equals(ACCEL_D3D)));
+      System.setProperty("sun.java2d.metal", Boolean.toString(accel.equals(ACCEL_METAL)));
     } catch (Exception ignored) {
+      System.err.println("Note: Could not enable " + accel + " graphics acceleration.");
     }
   }
 
@@ -426,6 +428,30 @@ public class AppPreferences {
             getScaled(IconSize, scale), getScaled(IconSize, scale), Image.SCALE_SMOOTH));
   }
 
+  /**
+   * Determines the appropriate font style (PLAIN or BOLD) for the given font.
+   *
+   * This is a heuristic to prevent "faux bold" rendering artifacts. Fonts with explicit 
+   * weights (e.g. Medium, Light) are typically standalone faces. Applying the BOLD style 
+   * to them forces synthetic bolding, which degrades rendering quality ("smearing").
+   *
+   * This method returns Font.PLAIN for such weighted fonts to ensure crisp rendering,
+   * while preserving Font.BOLD for standard fonts to maintain typical emphasis.
+   *
+   * @param fontName The name of the font family.
+   * @return Font.PLAIN if the font name suggests a specific weight, otherwise Font.BOLD.
+   */
+  public static int getPreferredFontStyle(String fontName) {
+    String font = fontName.toLowerCase();
+    if (font.contains("medium") || font.contains("light") 
+        || font.contains("thin") || font.contains("regular")
+        || font.contains("semibold") || font.contains("extrabold")) {
+      return Font.PLAIN;
+    }
+    return Font.BOLD;
+  }
+
+
   public static void updateRecentFile(File file) {
     recentProjects.updateRecent(file);
   }
@@ -437,6 +463,13 @@ public class AppPreferences {
   private static MyListener myListener = null;
   private static final PropertyChangeWeakSupport propertySupport =
       new PropertyChangeWeakSupport(AppPreferences.class);
+
+  // Autosave preferences
+  public static final String AUTOSAVE_ENABLE = "autosaveEnabled";
+  public static final String AUTOSAVE_PERIOD = "autosaveInterval";
+
+  public static final PrefMonitor<Boolean> AUTOSAVE_ENABLED = create(new PrefMonitorBoolean(AUTOSAVE_ENABLE, true));
+  public static final PrefMonitor<Integer> AUTOSAVE_INTERVAL = create(new PrefMonitorInt(AUTOSAVE_PERIOD, 30));
 
   // Template preferences
   public static final int IconSize = 16;
@@ -533,7 +566,10 @@ public class AppPreferences {
   public static final PrefMonitor<String> LookAndFeel =
       create(new PrefMonitorString("LookAndFeel", FlatIntelliJLaf.class.getName()));
 
-  // defaiult grid colors
+  public static final PrefMonitor<String> APP_FONT =
+      create(new PrefMonitorString("AppFont", ""));
+
+  // default grid colors
   public static final int DEFAULT_CANVAS_BG_COLOR = 0xFFFFFFFF;
   public static final int DEFAULT_GRID_BG_COLOR = 0xFFFFFFFF;
   public static final int DEFAULT_GRID_DOT_COLOR = 0xFF777777;
@@ -541,6 +577,7 @@ public class AppPreferences {
   public static final int DEFAULT_COMPONENT_COLOR = 0x00000000;
   public static final int DEFAULT_COMPONENT_SECONDARY_COLOR = 0x99999999;
   public static final int DEFAULT_COMPONENT_GHOST_COLOR = 0x99999999;
+  public static final int DEFAULT_COMPONENT_ICON_COLOR = 0x00000000;
 
   // restores default grid colors
   public static void setDefaultGridColors() {
@@ -551,6 +588,7 @@ public class AppPreferences {
     COMPONENT_COLOR.set(DEFAULT_COMPONENT_COLOR);
     COMPONENT_SECONDARY_COLOR.set(DEFAULT_COMPONENT_SECONDARY_COLOR);
     COMPONENT_GHOST_COLOR.set(DEFAULT_COMPONENT_GHOST_COLOR);
+    COMPONENT_ICON_COLOR.set(DEFAULT_COMPONENT_ICON_COLOR);
   }
 
   public static final PrefMonitor<Integer> CANVAS_BG_COLOR =
@@ -567,6 +605,8 @@ public class AppPreferences {
       create(new PrefMonitorInt("componentSecondaryColor", DEFAULT_COMPONENT_SECONDARY_COLOR));
   public static final PrefMonitor<Integer> COMPONENT_GHOST_COLOR =
       create(new PrefMonitorInt("componentGhostColor", DEFAULT_COMPONENT_GHOST_COLOR));
+  public static final PrefMonitor<Integer> COMPONENT_ICON_COLOR =
+      create(new PrefMonitorInt("componentIconColor", DEFAULT_COMPONENT_ICON_COLOR));
 
 
   // Layout preferences
@@ -767,12 +807,28 @@ public class AppPreferences {
 
   public static final String ACCEL_D3D = "d3d";
 
+  public static final String ACCEL_METAL = "metal";
+
   public static final PrefMonitor<String> GRAPHICS_ACCELERATION =
       create(
           new PrefMonitorStringOpts(
               "graphicsAcceleration",
-              new String[] {ACCEL_DEFAULT, ACCEL_NONE, ACCEL_OPENGL, ACCEL_D3D},
+              new String[] {ACCEL_DEFAULT, ACCEL_NONE, ACCEL_OPENGL, ACCEL_D3D, ACCEL_METAL},
               ACCEL_DEFAULT));
+
+  public static final String SIM_QUEUE_DEFAULT = "default";
+  public static final String SIM_QUEUE_PRIORITY = "priority";
+  public static final String SIM_QUEUE_SPLAY = "splay";
+  public static final String SIM_QUEUE_LINKED = "linked";
+  public static final String SIM_QUEUE_LIST_OF_QUEUES = "listOfQueues";
+  public static final String SIM_QUEUE_TREE_OF_QUEUES = "treeOfQueues";
+  public static final PrefMonitor<String> SIMULATION_QUEUE =
+      create(
+          new PrefMonitorStringOpts("simQueue",
+              new String[] {SIM_QUEUE_DEFAULT, SIM_QUEUE_PRIORITY, SIM_QUEUE_SPLAY,
+                            SIM_QUEUE_LINKED, SIM_QUEUE_LIST_OF_QUEUES, SIM_QUEUE_TREE_OF_QUEUES},
+              SIM_QUEUE_DEFAULT)
+      );
   public static final PrefMonitor<Boolean> AntiAliassing =
       create(new PrefMonitorBoolean("AntiAliassing", true));
 

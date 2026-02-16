@@ -68,6 +68,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
+import org.w3c.dom.Node;
 import org.xml.sax.SAXException;
 
 class XmlReader {
@@ -1032,6 +1033,78 @@ class XmlReader {
       repairForWiringLibrary(doc, root);
       repairForLegacyLibrary(doc, root);
     }
+
+    // Before version 4.0.0, Pin components had attributes:
+    //   output=true|false
+    //   tristate=true|false
+    //   pull=up|down (or missing)
+    // These are now consolidated into two attributes:
+    //   type=input|output
+    //   behavior=simple|tristate|pullup|pulldown
+    String wiringLibName = findLibNameByDesc(root, "#Wiring");
+    for (final Element compElt : XmlIterator.forDescendantElements(root, "comp")) {
+      convertObsoletePinAttributes(doc, compElt, wiringLibName);
+    }
+    for (final Element toolElt : XmlIterator.forDescendantElements(root, "tool")) {
+      convertObsoletePinAttributes(doc, toolElt, wiringLibName);
+    }
+
+    //prevents the following repairs to be applied when you open the program.
+    if (version.compareTo(new LogisimVersion(0, 0, 0)) == 0) return;
+
+    if (version.compareTo(new LogisimVersion(4, 1, 0, "dev")) < 0) {
+      repairFloatLibrary(doc, root);
+    }
+  }
+
+  private void convertObsoletePinAttributes(Document doc, Element elt, String wiringLibName) {
+    final var lib = elt.getAttribute("lib");
+    final var name = elt.getAttribute("name");
+    if (name == null || lib == null || !name.equals("Pin") || !lib.equals(wiringLibName)) {
+      return;
+    }
+    String output = null, tristate = null, pull = null, type = null, behavior = null;
+    final var bad = new ArrayList<Element>();
+    for (final var attrElt : XmlIterator.forChildElements(elt, "a")) {
+      final var aname = attrElt.getAttribute("name");
+      final var aval = attrElt.getAttribute("val");
+      if ("output".equalsIgnoreCase(aname)) {
+        output = aval;
+        bad.add(attrElt);
+      } else if ("tristate".equalsIgnoreCase(aname)) {
+        tristate = aval;
+        bad.add(attrElt);
+      } else if ("pull".equalsIgnoreCase(aname)) {
+        pull = aval;
+        bad.add(attrElt);
+      } else if ("type".equalsIgnoreCase(aname)) {
+        type = aval;
+      } else if ("behavior".equalsIgnoreCase(aname)) {
+        behavior = aval;
+      }
+    }
+    for (final var badElement : bad) {
+      elt.removeChild(badElement);
+    }
+    if (type == null && output != null) {
+      appendChildAttribute(doc, elt, "type", output.equalsIgnoreCase("true") ? "output" : "input");
+    }
+    if (behavior == null) {
+      if ("up".equalsIgnoreCase(pull)) {
+        appendChildAttribute(doc, elt, "behavior", "pullup");
+      } else if ("down".equalsIgnoreCase(pull)) {
+        appendChildAttribute(doc, elt, "behavior", "pulldown");
+      } else if ("true".equalsIgnoreCase(tristate)) {
+        appendChildAttribute(doc, elt, "behavior", "tristate");
+      }
+    }
+  }
+
+  private static void appendChildAttribute(Document doc, Element elt, String name, String val) {
+    final var attr = doc.createElement("a");
+    attr.setAttribute("name", name);
+    attr.setAttribute("val", val);
+    elt.appendChild(attr);
   }
 
   private Document loadXmlFrom(InputStream is) throws SAXException, IOException {
@@ -1227,6 +1300,54 @@ class XmlReader {
     updateFromLabelMap(XmlIterator.forDescendantElements(root, "tool"), labelMap);
   }
 
+  private void repairFloatLibrary(Document doc, Element root) {
+    Element arithmeticLib = null;
+    Node nextSibling = null;
+    for (final var lib : XmlIterator.forChildElements(root, "lib")) {
+      if (lib.getAttribute("desc").equals("#Arithmetic")) {
+        arithmeticLib = lib;
+        nextSibling = lib.getNextSibling();
+        break;
+      }
+    }
+
+    if (arithmeticLib != null) {
+      final Element floatLib = doc.createElement("lib");
+      floatLib.setAttribute("desc", "#FPArithmetic");
+      floatLib.setAttribute("name", "float");
+
+      final List<Element> toolsToMove = new ArrayList<>();
+      for (final var tool : XmlIterator.forChildElements(arithmeticLib, "tool")) {
+        final String toolName = tool.getAttribute("name");
+        if (toolName.startsWith("FP") || toolName.equals("IntToFP")) {
+          toolsToMove.add(tool);
+        }
+      }
+
+      for (Element tool : toolsToMove) {
+        arithmeticLib.removeChild(tool);
+        floatLib.appendChild(tool);
+      }
+
+      if (nextSibling != null) {
+        root.insertBefore(floatLib, nextSibling);
+      } else {
+        root.appendChild(floatLib);
+      }
+
+      for (final var circuit : XmlIterator.forChildElements(root, "circuit")) {
+        for (final var comp : XmlIterator.forChildElements(circuit, "comp")) {
+          final String libName = comp.getAttribute("lib");
+          final String compName = comp.getAttribute("name");
+
+          if (libName.equals(arithmeticLib.getAttribute("name"))
+              && compName.startsWith("FP") || compName.equals("IntToFP")) {
+            comp.setAttribute("lib", "float");
+          }
+        }
+      }
+    }
+  }
   private void updateFromLabelMap(Iterable<Element> elts, HashMap<String, String> labelMap) {
     for (final var elt : elts) {
       final var oldLib = elt.getAttribute("lib");
@@ -1238,5 +1359,15 @@ class XmlReader {
         }
       }
     }
+  }
+
+  private static String findLibNameByDesc(Element root, String libdesc) {
+    for (final var libElt : XmlIterator.forChildElements(root, "lib")) {
+      final var desc = libElt.getAttribute("desc");
+      final var name = libElt.getAttribute("name");
+      if (name != null && desc != null && desc.equals(libdesc))
+        return name;
+    }
+    return null;
   }
 }

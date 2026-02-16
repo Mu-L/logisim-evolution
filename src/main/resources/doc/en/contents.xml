@@ -49,6 +49,14 @@
 			<tocitem target="mem_binary" text="File binary"/>
 			<tocitem target="mem_ascii" text="File ASCII"/>
 		</tocitem>
+		<tocitem target="test_vector" text="Test Vectors">
+			<tocitem target="test_vector_window" text="Test Vector Window" />
+			<tocitem target="test_vector_file_format" text="Test Vector File Format" />
+			<tocitem target="test_vector_special_values" text="Special Values" />
+			<tocitem target="test_vector_sequential" text="Sequential Testing" />
+			<tocitem target="test_vector_cmdline" text="Command Line Usage" />
+			<tocitem target="test_vector_tips" text="Tips and Best Practices" />
+		</tocitem>
 		<tocitem target="analyze" text="Combinational analysis">
 			<tocitem target="analyze_open" text="Opening Combinational Analysis" />
 			<tocitem target="analyze_table" text="Editing the truth table" />
@@ -173,7 +181,7 @@
 			<tocitem target="io_joystick" text="Joystick" image="icon_joystick" />
 			<tocitem target="io_keyboard" text="Keyboard" image="icon_keyboard" />
 			<tocitem target="io_led" text="LED" image="icon_led" />
-			<tocitem target="io_ledRVB" text="LED RVB" image="icon_rvbled" />
+			<tocitem target="io_ledRGB" text="LED RGB" image="icon_rgbled" />
 			<tocitem target="io_7seg" text="7-Segment Display" image="icon_7seg" />
 			<tocitem target="io_hexdig" text="Hex Digit Display" image="icon_hexdig" />
 			<tocitem target="io_dotmat" text="LED Matrix" image="icon_dotmat" />
@@ -181,7 +189,7 @@
 <!-- not documented 
      		<tocitem target="io_Port_IO" text="Port I/O" image="icon_Port_IO" />
 			<tocitem target="io_Repetar" text="Reptar Local Bus" image="icon_repetar" />
-			<tocitem target="io_videorvb" text="Video RVB" image="icon_videorvb" />
+			<tocitem target="io_videorgb" text="Video RGB" image="icon_videorgb" />
 -->	
 		</tocitem>
 <!-- not documented 

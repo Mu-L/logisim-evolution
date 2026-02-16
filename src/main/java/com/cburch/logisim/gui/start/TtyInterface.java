@@ -225,7 +225,7 @@ public class TtyInterface {
       }
     }
 
-    for (final var sub : circState.getSubStates()) {
+    for (final var sub : circState.getSubstates()) {
       found |= loadMem(sub, loadFile, loadMemLabel);
     }
     return found;
@@ -244,7 +244,7 @@ public class TtyInterface {
       }
     }
 
-    for (final var sub : circState.getSubStates()) {
+    for (final var sub : circState.getSubstates()) {
       found |= saveRam(sub, saveFile);
     }
     return found;
@@ -264,7 +264,7 @@ public class TtyInterface {
       }
     }
 
-    for (CircuitState sub : circState.getSubStates()) {
+    for (CircuitState sub : circState.getSubstates()) {
       found |= prepareForTty(sub, keybStates);
     }
     return found;
@@ -321,7 +321,7 @@ public class TtyInterface {
       return;
     }
 
-    CircuitState circState = new CircuitState(proj, circuit);
+    CircuitState circState = CircuitState.createRootState(proj, circuit, Thread.currentThread());
 
     // we load the memories before first propagation
     // so the first propagation emits correct values
@@ -340,7 +340,8 @@ public class TtyInterface {
 
     // we have to do our initial propagation before the simulation starts -
     // it's necessary to populate the circuit with substates.
-    circState.getPropagator().propagate();
+    final var prop = circState.getPropagator();
+    prop.propagate();
 
     final var ttyFormat = args.getTtyFormat();
     final var simCode = runSimulation(circState, outputPins, haltPin, ttyFormat);
@@ -413,7 +414,8 @@ public class TtyInterface {
     final var valueMap = new HashMap<Instance, Value>();
     for (var i = 0; i < rowCount; i++) {
       valueMap.clear();
-      final var circuitState = new CircuitState(proj, circuit);
+      final var circuitState = CircuitState.createRootState(proj, circuit, Thread.currentThread());
+      final var prop = circuitState.getPropagator();
       var incol = 0;
       for (final var pin : inputPins) {
         final var width = pin.getAttributeValue(StdAttr.WIDTH).getWidth();
@@ -423,17 +425,17 @@ public class TtyInterface {
           v[b] = value ? Value.TRUE : Value.FALSE;
         }
         final var pinState = circuitState.getInstanceState(pin);
-        Pin.FACTORY.setValue(pinState, Value.create(v));
+        Pin.FACTORY.driveInputPin(pinState, Value.create(v));
         valueMap.put(pin, Value.create(v));
       }
 
-      final var prop = circuitState.getPropagator();
       prop.propagate();
       /*
        * TODO for the SimulatorPrototype class do { prop.step(); } while
        * (prop.isPending());
        */
       // TODO: Search for circuit state
+
 
       for (final var pin : outputPins) {
         if (prop.isOscillating()) {
@@ -486,18 +488,22 @@ public class TtyInterface {
     ArrayList<Value> prevOutputs = null;
     final var prop = circState.getPropagator();
     while (true) {
-      final var curOutputs = new ArrayList<Value>();
-      for (final var pin : outputPins) {
-        final var pinState = circState.getInstanceState(pin);
-        final var val = Pin.FACTORY.getValue(pinState);
-        if (pin == haltPin) {
-          halted |= val.equals(Value.TRUE);
-        } else if (showTable) {
-          curOutputs.add(val);
-        }
-      }
       if (showTable) {
+        final var curOutputs = new ArrayList<Value>();
+        for (final var pin : outputPins) {
+          if (pin != haltPin) {
+            final var pinState = circState.getInstanceState(pin);
+            final var val = Pin.FACTORY.getValue(pinState);
+            curOutputs.add(val);
+          }
+        }
         displayTableRow(prevOutputs, curOutputs);
+        prevOutputs = curOutputs;
+      }
+      if (haltPin != null) {
+        final var pinState = circState.getReusableInstanceState(haltPin); // OK as we are not propagating
+        final var val = Pin.FACTORY.getValue(pinState);
+        halted = val.equals(Value.TRUE);
       }
 
       if (halted) {
@@ -516,7 +522,6 @@ public class TtyInterface {
           }
         }
       }
-      prevOutputs = curOutputs;
       tickCount++;
       prop.toggleClocks();
       prop.propagate();

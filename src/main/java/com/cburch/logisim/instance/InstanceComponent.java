@@ -305,7 +305,7 @@ public final class InstanceComponent implements Component, AttributeListener, To
     }
   }
 
-  void fireInvalidated() {
+  public void fireInvalidated() {
     final var listeners = this.listeners;
     if (listeners != null) {
       ComponentEvent e = null;
@@ -411,7 +411,9 @@ public final class InstanceComponent implements Component, AttributeListener, To
 
   @Override
   public void propagate(CircuitState state) {
-    factory.propagate(state.getInstanceState(this));
+    // Reusable allowed as this is the start of the propagation for this state.
+    // This accounts for up to 90% of the speedup by reusing.
+    factory.propagate(state.getReusableInstanceState(this));
   }
 
   void recomputeBounds() {

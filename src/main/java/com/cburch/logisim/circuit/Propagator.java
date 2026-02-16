@@ -16,35 +16,18 @@ import com.cburch.logisim.data.AttributeListener;
 import com.cburch.logisim.data.Location;
 import com.cburch.logisim.data.Value;
 import com.cburch.logisim.file.Options;
+import com.cburch.logisim.prefs.AppPreferences;
+import com.cburch.logisim.util.LinkedQueue;
+import com.cburch.logisim.util.QNodeQueue;
+import com.cburch.logisim.util.QueueOfQueues;
+import com.cburch.logisim.util.SplayQueue;
+import com.cburch.logisim.util.QNode;
 import java.lang.ref.WeakReference;
-import java.util.HashMap;
-import java.util.HashSet;
+import java.util.ArrayList;
 import java.util.PriorityQueue;
 import java.util.Random;
 
 public class Propagator {
-  private static class ComponentPoint {
-    final Component cause;
-    final Location loc;
-
-    public ComponentPoint(Component cause, Location loc) {
-      this.cause = cause;
-      this.loc = loc;
-    }
-
-    @Override
-    public boolean equals(Object other) {
-      return (other instanceof ComponentPoint o)
-             ? this.cause.equals(o.cause) && this.loc.equals(o.loc)
-             : false;
-    }
-
-    @Override
-    public int hashCode() {
-      return 31 * cause.hashCode() + loc.hashCode();
-    }
-  }
-
   private static class Listener implements AttributeListener {
     final WeakReference<Propagator> prop;
 
@@ -65,47 +48,37 @@ public class Propagator {
       } else if (e.getAttribute().equals(Options.ATTR_SIM_RAND)) {
         p.updateRandomness();
       } else if (e.getAttribute().equals(Options.ATTR_SIM_LIMIT)) {
-        p.updateOscillationLimit();
+        p.updateSimLimit();
       }
     }
   }
 
-  static class SetData implements Comparable<SetData> {
-    final int time;
-    final int serialNumber;
-    final CircuitState state; // state of circuit containing component
-    final Component cause; // component emitting the value
-    final Location loc; // the location at which value is emitted
-    Value val; // value being emitted
-    SetData next = null;
+  public static class SimulatorEvent extends QNode {
+    /** State of circuit containing component */
+    final CircuitState state;
 
-    private SetData(
-        int time, int serialNumber, CircuitState state, Location loc, Component cause, Value val) {
-      this.time = time;
-      this.serialNumber = serialNumber;
+    /** The location at which value is emitted */
+    final Location loc;
+
+    /** Component emitting the value */
+    final Component cause;
+
+    /** Value being emitted */
+    Value val;
+
+    private SimulatorEvent(int time, int serialNumber,
+                           CircuitState state, Location loc, Component cause, Value val) {
+      super(time, serialNumber);
       this.state = state;
       this.cause = cause;
       this.loc = loc;
       this.val = val;
     }
 
-    public SetData cloneFor(CircuitState newState) {
+    public SimulatorEvent cloneFor(CircuitState newState) {
       final var newProp = newState.getPropagator();
       final var dtime = newProp.clock - state.getPropagator().clock;
-      final var ret =
-          new SetData(time + dtime, newProp.setDataSerialNumber, newState, loc, cause, val);
-      newProp.setDataSerialNumber++;
-      if (this.next != null) ret.next = this.next.cloneFor(newState);
-      return ret;
-    }
-
-    @Override
-    public int compareTo(SetData o) {
-      // Yes, these subtractions may overflow. This is intentional, as it
-      // avoids potential wraparound problems as the counters increment.
-      int ret = this.time - o.time;
-      if (ret != 0) return ret;
-      return this.serialNumber - o.serialNumber;
+      return new SimulatorEvent(timeKey + dtime, newProp.eventSerialNumber++, newState, loc, cause, val);
     }
 
     @Override
@@ -114,19 +87,8 @@ public class Propagator {
     }
   }
 
-  //
-  // static methods
-  //
-  static Value computeValue(SetData causes) {
-    if (causes == null) return Value.NIL;
-    var ret = causes.val;
-    for (var n = causes.next; n != null; n = n.next) {
-      ret = ret.combine(n.val);
-    }
-    return ret;
-  }
-
-  private final CircuitState root; // root of state tree
+  /** Root of state tree */
+  private final CircuitState root;
 
   /** The number of clock cycles to let pass before deciding that the circuit is oscillating. */
   private volatile int simLimit;
@@ -138,7 +100,24 @@ public class Propagator {
    */
   private volatile int simRandomShift;
 
-  private final PriorityQueue<SetData> toProcess = new PriorityQueue<>();
+  private static class PriorityEventQueue<T extends QNode> extends PriorityQueue<T> implements QNodeQueue<T> {
+  }
+
+  /**
+   * The simulator event queue can be implemented by a Java PriorityQueue, SplayQueue, LinkedQueue,
+   * or QueueOfQueues with the time queue either linked or TreeMap.The user may choose the
+   * implementation in the Experimental panel of User Preferences.
+   */
+  private final QNodeQueue<SimulatorEvent> toProcess;
+
+  /** Allows Propagator to verify correct thread usage. It is usually the simulation thread
+   *  but it can be another thread if the simulator is not being used (e.g. command line testing) */
+  private final Thread propagatorThread;
+
+  /** Used to handle events generated by threads other than the propagation thread. */
+  private final ArrayList<SimulatorEvent> nonPropThreadEvents = new ArrayList<SimulatorEvent>();
+  private volatile boolean nonPropThreadEventsAvailable = false;
+
   private int clock = 0;
   private boolean isOscillating = false;
   private boolean oscAdding = false;
@@ -147,76 +126,33 @@ public class Propagator {
   private final Random noiseSource = new Random();
   private int noiseCount = 0;
 
-  private int setDataSerialNumber = 0;
+  private int eventSerialNumber = 0;
   static int lastId = 0;
 
   final int id = lastId++;
 
-  public Propagator(CircuitState root) {
+  public Propagator(CircuitState root, Thread propagatorThread) {
     this.root = root;
+    this.propagatorThread = propagatorThread;
     final var l = new Listener(this);
     root.getProject().getOptions().getAttributeSet().addAttributeListener(l);
+    final var simQueueType = AppPreferences.SIMULATION_QUEUE.get();
+    toProcess = switch (simQueueType) {
+      case AppPreferences.SIM_QUEUE_LIST_OF_QUEUES, AppPreferences.SIM_QUEUE_TREE_OF_QUEUES
+          -> new QueueOfQueues<>(simQueueType);
+      case AppPreferences.SIM_QUEUE_LINKED -> new LinkedQueue<>();
+      case AppPreferences.SIM_QUEUE_SPLAY  -> new SplayQueue<>();
+      // case AppPreferences.SIM_QUEUE_PRIORITY  -> new PriorityEventQueue<>();
+      default -> new PriorityEventQueue<>();
+    };
     updateRandomness();
-    updateOscillationLimit();
-  }
-
-  private SetData addCause(CircuitState state, SetData head, SetData data) {
-    if (data.val == null) { // actually, it should be removed
-      return removeCause(state, head, data.loc, data.cause);
-    }
-
-    final var causes = state.causes;
-
-    // first check whether this is change of previous info.
-    var replaced = false;
-    for (var n = head; n != null; n = n.next) {
-      if (n.cause == data.cause) {
-        n.val = data.val;
-        replaced = true;
-        break;
-      }
-    }
-
-    // otherwise, insert to list of causes
-    if (!replaced) {
-      if (head == null) {
-        causes.put(data.loc, data);
-        head = data;
-      } else {
-        data.next = head.next;
-        head.next = data;
-      }
-    }
-
-    return head;
-  }
-
-  //
-  // private methods
-  //
-  void checkComponentEnds(CircuitState state, Component comp) {
-    for (final var end : comp.getEnds()) {
-      final var loc = end.getLocation();
-      final var oldHead = state.causes.get(loc);
-      final var oldVal = computeValue(oldHead);
-      final var newHead = removeCause(state, oldHead, loc, comp);
-      final var newVal = computeValue(newHead);
-      final var wireVal = state.getValueByWire(loc);
-
-      if (!newVal.equals(oldVal) || wireVal != null) {
-        state.markPointAsDirty(loc);
-      }
-      if (wireVal != null) state.setValueByWire(loc, Value.NIL);
-    }
+    updateSimLimit();
   }
 
   public void drawOscillatingPoints(ComponentDrawContext context) {
     if (isOscillating) oscPoints.draw(context);
   }
 
-  //
-  // public methods
-  //
   CircuitState getRootState() {
     return root;
   }
@@ -233,43 +169,20 @@ public class Propagator {
     return !toProcess.isEmpty();
   }
 
-  /*
-   * TODO for the SimulatorPrototype class void step() { clock++;
-   *
-   * // propagate all values for this clock tick HashMap visited = new
-   * HashMap(); // State -> set of ComponentPoints handled while
-   * (!toProcess.isEmpty()) { SetData data; data = (SetData) toProcess.peek();
-   * if (data.time != clock) break; toProcess.remove(); CircuitState state =
-   * data.state;
-   *
-   * // if it's already handled for this clock tick, continue HashSet handled
-   * = (HashSet) visited.get(state); if (handled != null) { if
-   * (!handled.add(new ComponentPoint(data.cause, data.loc))) continue; } else
-   * { handled = new HashSet(); visited.put(state, handled); handled.add(new
-   * ComponentPoint(data.cause, data.loc)); }
-   *
-   * if (oscAdding) oscPoints.add(state, data.loc);
-   *
-   * // change the information about value SetData oldHead = (SetData)
-   * state.causes.get(data.loc); Value oldVal = computeValue(oldHead); SetData
-   * newHead = addCause(state, oldHead, data); Value newVal =
-   * computeValue(newHead);
-   *
-   * // if the value at point has changed, propagate it if
-   * (!newVal.equals(oldVal)) { state.markPointAsDirty(data.loc); } }
-   *
-   * clearDirtyPoints(); clearDirtyComponents(); }
-   */
-
   void locationTouched(CircuitState state, Location loc) {
     if (oscAdding) oscPoints.add(state, loc);
   }
 
+  /** Must be called from propagation thread */
   public boolean propagate() {
     return propagate(null, null);
   }
 
+  /** Must be called from propagation thread */
   public boolean propagate(Simulator.ProgressListener propListener, Simulator.Event propEvent) {
+    if (Thread.currentThread() != propagatorThread) {
+      throw new RuntimeException("Propagate called with incorrect thread");
+    }
     oscPoints.clear();
     root.processDirtyPoints();
     root.processDirtyComponents();
@@ -277,9 +190,11 @@ public class Propagator {
     final var oscThreshold = simLimit;
     final var logThreshold = 3 * oscThreshold / 4;
     var iters = 0;
+    moveNonPropThreadEvents();
     while (!toProcess.isEmpty()) {
-      if (iters > 0 && propListener != null)
+      if (iters > 0 && propListener != null) {
         propListener.propagationInProgress(propEvent);
+      }
       iters++;
 
       if (iters < logThreshold) {
@@ -292,6 +207,7 @@ public class Propagator {
         oscAdding = false;
         return true;
       }
+      moveNonPropThreadEvents();
     }
     isOscillating = false;
     oscAdding = false;
@@ -299,31 +215,16 @@ public class Propagator {
     return iters > 0;
   }
 
-  private SetData removeCause(CircuitState state, SetData head, Location loc, Component cause) {
-    final var causes = state.causes;
-    if (head == null) {
-    } else if (head.cause == cause) {
-      head = head.next;
-      if (head == null) causes.remove(loc);
-      else causes.put(loc, head);
-    } else {
-      var prev = head;
-      var cur = head.next;
-      while (cur != null) {
-        if (cur.cause == cause) {
-          prev.next = cur.next;
-          break;
-        }
-        prev = cur;
-        cur = cur.next;
-      }
-    }
-    return head;
-  }
-
+  /** Must be called by the propagation thread */
   void reset() {
+    if (Thread.currentThread() != propagatorThread) {
+      throw new RuntimeException("Reset called with incorrect thread");
+    }
     halfClockCycles = 0;
     toProcess.clear();
+    synchronized (nonPropThreadEvents) {
+      nonPropThreadEvents.clear();
+    }
     root.reset();
     isOscillating = false;
   }
@@ -331,11 +232,40 @@ public class Propagator {
   //
   // package-protected helper methods
   //
+  /**
+   * Moves the simulation events from the nonPropThreadEvents array to the event queue.
+   * Must be called from the propagation thread.
+   */
+  private void moveNonPropThreadEvents() {
+    if (nonPropThreadEventsAvailable) {
+      synchronized (nonPropThreadEvents) {
+        for (final var ev : nonPropThreadEvents) {
+          setValueWithPropThread(ev.state, ev.loc, ev.val, ev.cause, ev.timeKey);
+        }
+        nonPropThreadEvents.clear();
+        nonPropThreadEventsAvailable = false;
+      }
+    }
+  }
+
+  /** May be called by any thread. */
   void setValue(CircuitState state, Location pt, Value val, Component cause, int delay) {
     if (cause instanceof Wire || cause instanceof Splitter) return;
     if (delay <= 0) {
       delay = 1;
     }
+    if (Thread.currentThread() == propagatorThread) {
+      setValueWithPropThread(state, pt, val, cause, delay);
+    } else {
+      synchronized (nonPropThreadEvents) {
+        nonPropThreadEvents.add(new SimulatorEvent(delay, 0, state, pt, cause, val));
+        nonPropThreadEventsAvailable = true;
+      }
+    }
+  }
+
+  /** Must be called from the propagation thread. */
+  private void setValueWithPropThread(CircuitState state, Location pt, Value val, Component cause, int delay) {
     final var randomShift = simRandomShift;
     if (randomShift > 0) { // random noise is turned on
       // multiply the delay by 32 so that the random noise
@@ -350,19 +280,19 @@ public class Propagator {
         }
       }
     }
-    toProcess.add(new SetData(clock + delay, setDataSerialNumber, state, pt, cause, val));
-    /*
-     * DEBUGGING - comment out Simulator.log(clock + ": set " + pt + " in "
-     * + state + " to " + val + " by " + cause + " after " + delay); //
-     */
-
-    setDataSerialNumber++;
+    toProcess.add(new SimulatorEvent(clock + delay, eventSerialNumber, state, pt, cause, val));
+    eventSerialNumber++;
   }
 
+  /** Must be called from propagation thread */
   boolean step(PropagationPoints changedPoints) {
+    if (Thread.currentThread() != propagatorThread) {
+      throw new RuntimeException("Step called with incorrect thread");
+    }
     oscPoints.clear();
     root.processDirtyPoints();
     root.processDirtyComponents();
+    moveNonPropThreadEvents();
 
     if (toProcess.isEmpty()) return false;
 
@@ -375,48 +305,24 @@ public class Propagator {
     return true;
   }
 
+  /** Must be called from propagation thread */
   private void stepInternal(PropagationPoints changedPoints) {
     if (toProcess.isEmpty()) return;
 
     // update clock
-    clock = toProcess.peek().time;
+    clock = toProcess.peek().timeKey;
 
     // propagate all values for this clock tick
-    final var visited = new HashMap<CircuitState, HashSet<ComponentPoint>>();
     while (true) {
-      final var data = toProcess.peek();
-      if (data == null || data.time != clock) break;
+      SimulatorEvent ev = toProcess.peek();
+      if (ev == null || ev.timeKey != clock) break;
       toProcess.remove();
-      final var state = data.state;
+      final var state = ev.state;
 
-      // if it's already handled for this clock tick, continue
-      var handled = visited.get(state);
-      if (handled != null) {
-        if (!handled.add(new ComponentPoint(data.cause, data.loc))) continue;
-      } else {
-        handled = new HashSet<>();
-        visited.put(state, handled);
-        handled.add(new ComponentPoint(data.cause, data.loc));
-      }
-
-      /*
-       * DEBUGGING - comment out Simulator.log(data.time + ": proc " +
-       * data.loc + " in " + data.state + " to " + data.val + " by " +
-       * data.cause); //
-       */
-
-      if (changedPoints != null) changedPoints.add(state, data.loc);
-
-      // change the information about value
-      final var oldHead = state.causes.get(data.loc);
-      final var oldVal = computeValue(oldHead);
-      final var newHead = addCause(state, oldHead, data);
-      final var newVal = computeValue(newHead);
+      if (changedPoints != null) changedPoints.add(state, ev.loc);
 
       // if the value at point has changed, propagate it
-      if (!newVal.equals(oldVal)) {
-        state.markPointAsDirty(data.loc);
-      }
+      state.markPointAsDirty(ev); // ev.loc, ev.cause, ev.val);
     }
 
     root.processDirtyPoints();
@@ -438,15 +344,15 @@ public class Propagator {
     final var rand = opts.getAttributeSet().getValue(Options.ATTR_SIM_RAND);
     final var val = rand;
     var logVal = 0;
-    while ((1 << logVal) < val) logVal++;
+    while ((1 << logVal) < val) {
+      logVal++;
+    }
     simRandomShift = logVal;
   }
 
-  private void updateOscillationLimit() {
+  private void updateSimLimit() {
     final var opts = root.getProject().getOptions();
     final var lim = opts.getAttributeSet().getValue(Options.ATTR_SIM_LIMIT);
     simLimit = lim;
   }
-
-
 }

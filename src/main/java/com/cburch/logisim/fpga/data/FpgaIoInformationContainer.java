@@ -221,7 +221,7 @@ public class FpgaIoInformationContainer implements Cloneable {
         if (vals.length == 3) {
           try {
             nrOfRows = Integer.parseUnsignedInt(vals[0]);
-            nrOfColumns = Integer.parseInt(vals[1]);  
+            nrOfColumns = Integer.parseInt(vals[1]);
             driving = SevenSegmentScanningDriving.getId(vals[2]);
           } catch (NumberFormatException e) {
             nrOfRows = 4;
@@ -513,7 +513,7 @@ public class FpgaIoInformationContainer implements Cloneable {
       }
       if (myType.equals(IoComponentTypes.SevenSegmentScanning)) {
         result.setAttribute(
-            BoardWriterClass.SCANNING_SEVEN_SEGMENT_INFO_STRING, 
+            BoardWriterClass.SCANNING_SEVEN_SEGMENT_INFO_STRING,
             String.format("%d,%d,%s", nrOfRows, nrOfColumns, SevenSegmentScanningDriving.getStrings().get(driving)));
       }
       if (IoComponentTypes.hasRotationAttribute(myType)) {
@@ -529,7 +529,8 @@ public class FpgaIoInformationContainer implements Cloneable {
         final var attrSet = doc.createAttribute(BoardWriterClass.INPUT_SET_STRING);
         final var sb = new StringBuilder();
         var first = true;
-        for (var i = 0; i < nrOfPins; i++)
+        final var realNumberOfPins = (nrOfExternalPins == 0) ? nrOfPins : nrOfExternalPins;
+        for (var i = 0; i < realNumberOfPins; i++)
           if (myInputPins.contains(i)) {
             if (first) first = false;
             else sb.append(",");
@@ -542,7 +543,8 @@ public class FpgaIoInformationContainer implements Cloneable {
         final var attrSet = doc.createAttribute(BoardWriterClass.OUTPUT_SET_STRING);
         final var sb = new StringBuilder();
         var first = true;
-        for (var i = 0; i < nrOfPins; i++)
+        final var realNumberOfPins = (nrOfExternalPins == 0) ? nrOfPins : nrOfExternalPins;
+        for (var i = 0; i < realNumberOfPins; i++)
           if (myOutputPins.contains(i)) {
             if (first) first = false;
             else sb.append(",");
@@ -555,7 +557,8 @@ public class FpgaIoInformationContainer implements Cloneable {
         final var attrSet = doc.createAttribute(BoardWriterClass.IO_SET_STRING);
         final var sb = new StringBuilder();
         var first = true;
-        for (var i = 0; i < nrOfPins; i++)
+        final var realNumberOfPins = (nrOfExternalPins == 0) ? nrOfPins : nrOfExternalPins;
+        for (var i = 0; i < realNumberOfPins; i++)
           if (myIoPins.contains(i)) {
             if (first) first = false;
             else sb.append(",");
@@ -976,7 +979,7 @@ public class FpgaIoInformationContainer implements Cloneable {
     }
     return false;
   }
-  
+
   public boolean tryScanningMap(JPanel parent) {
     var map = selComp.getMap();
     if (selComp.getPin() >= 0 && selectedPin >= 0) {
@@ -987,7 +990,7 @@ public class FpgaIoInformationContainer implements Cloneable {
     /* okay, the map component has more than one pin, we see if it is a seven segment
      * display, or a hex display, otherwise we use the partialmapdialog
      */
-    final var fact = map.getComponentFactory(); 
+    final var fact = map.getComponentFactory();
     if (fact instanceof SevenSegment || fact instanceof HexDigit) {
       final var hasDp = map.getAttributeSet().getValue(SevenSegment.ATTR_DP);
       final var nrOfSegments = (hasDp) ? 8 : 7;

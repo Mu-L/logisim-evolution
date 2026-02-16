@@ -112,6 +112,7 @@ public class Frame extends LFrame.MainWindow implements LocaleListener {
   // for the Appearance view
   private AppearanceView appearance;
   private Double lastFraction = AppPreferences.WINDOW_RIGHT_SPLIT.get();
+  private final RegTabContent regTabContent;
 
   public Frame(Project project) {
     super(project);
@@ -150,9 +151,17 @@ public class Frame extends LFrame.MainWindow implements LocaleListener {
     toolbox = new Toolbox(project, this, menuListener);
     simExplorer = new SimulationExplorer(project, menuListener);
     bottomTab = new JTabbedPane();
-    bottomTab.setFont(AppPreferences.getScaledFont(new Font("Dialog", Font.BOLD, 9)));
+    var fontName = "Dialog";
+    final var appFont = AppPreferences.APP_FONT.get();
+    if (appFont != null && !appFont.isBlank()) {
+      fontName = appFont;
+    }
+    
+    var fontStyle = AppPreferences.getPreferredFontStyle(fontName);
+    bottomTab.setFont(AppPreferences.getScaledFont(new Font(fontName, fontStyle, 9)));
     bottomTab.add(attrTable = new AttrTable(this));
-    bottomTab.add(new RegTabContent(this));
+    regTabContent = new RegTabContent(this);
+    bottomTab.add(regTabContent);
 
     zoom = new ZoomControl(layoutZoomModel, layoutCanvas);
 
@@ -174,7 +183,7 @@ public class Frame extends LFrame.MainWindow implements LocaleListener {
     simPanel.add(simExplorer, BorderLayout.CENTER);
 
     topTab = new JTabbedPane();
-    topTab.setFont(new Font("Dialog", Font.BOLD, 9));
+    topTab.setFont(new Font(fontName, fontStyle, 9));
     topTab.add(explPanel);
     topTab.add(simPanel);
 
@@ -223,6 +232,10 @@ public class Frame extends LFrame.MainWindow implements LocaleListener {
 
     LocaleManager.addLocaleListener(this);
     toolbox.updateStructure();
+  }
+
+  public RegTabContent getRegTabContent() {
+    return regTabContent;
   }
 
   /**
@@ -445,10 +458,12 @@ public class Frame extends LFrame.MainWindow implements LocaleListener {
     var ret = false;
     if (result == 0) {
       ret = ProjectActions.doSave(project);
+      project.getLogisimFile().stopAutosaveThread(false);
     } else if (result == 1) {
       // Close the current project
       dispose();
       ret = true;
+      project.getLogisimFile().stopAutosaveThread(true);
     }
 
     return ret;
