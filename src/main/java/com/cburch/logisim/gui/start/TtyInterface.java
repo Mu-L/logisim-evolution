@@ -322,6 +322,7 @@ public class TtyInterface {
     }
 
     CircuitState circState = CircuitState.createRootState(proj, circuit, Thread.currentThread());
+    circState.getPropagator().propagate(); // adds the substates so we can search them.
 
     // we load the memories before first propagation
     // so the first propagation emits correct values
