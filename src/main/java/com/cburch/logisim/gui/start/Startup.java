@@ -81,8 +81,6 @@ import org.apache.commons.cli.Option;
 import org.apache.commons.cli.Options;
 import org.apache.commons.cli.ParseException;
 import org.apache.commons.cli.UnrecognizedOptionException;
-import org.apache.commons.lang3.tuple.MutablePair;
-import org.apache.commons.lang3.tuple.Pair;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -105,7 +103,7 @@ public class Startup implements AWTEventListener {
 
   /* File contains the data that should be loaded into a RAM/ROM with a label matching the String
      (if no label is provided, File is loaded into every RAM/ROM) */
-  private List<Pair<File, String>> memoriesToLoad = new ArrayList<>();
+  private final HashMap<String, File> memoryLoadFiles = new HashMap<>();
 
   private File saveFile;
   private int ttyFormat = 0;
@@ -434,7 +432,7 @@ public class Startup implements AWTEventListener {
       logger.error(S.get("ttyNeedsFileError"));
       return null;
     }
-    if (!startup.memoriesToLoad.isEmpty() && !startup.isTty) {
+    if (!startup.memoryLoadFiles.isEmpty() && !startup.isTty) {
       logger.error(S.get("loadNeedsTtyError"));
       return null;
     }
@@ -525,13 +523,13 @@ public class Startup implements AWTEventListener {
       return RC.QUIT;
     }
 
-    final var pair = new MutablePair<File, String>();
-    pair.left = new File(optArgs[0]);
-    if (argsCnt == 2) {
-      pair.right = optArgs[1];
+    final var label = argsCnt == 1 ? "" : optArgs[1];
+    if (startup.memoryLoadFiles.containsKey(label)) {
+      logger.error(S.get("argLoadDuplicateLabel", label));
+      return RC.QUIT;
     }
+    startup.memoryLoadFiles.put(label, new File(optArgs[0]));
 
-    startup.memoriesToLoad.add(pair);
     return RC.OK;
   }
 
@@ -814,8 +812,8 @@ public class Startup implements AWTEventListener {
     return filesToOpen;
   }
 
-  List<Pair<File, String>> getMemoriesToLoad() {
-    return memoriesToLoad;
+  HashMap<String, File> getMemoryLoadFiles() {
+    return memoryLoadFiles;
   }
 
   File getSaveFile() {
