@@ -3,6 +3,7 @@
 # Changes #
 
 * @dev (????-??-??)
+  * Added ability to load multiple RAM or ROM memories from the command line
   * Added Real-Time Clock component.
   * Improved drawing appearance:
     * Corrected font choice for default fonts in TikZ image exports.
