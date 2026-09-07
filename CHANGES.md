@@ -3,6 +3,7 @@
 # Changes #
 
 * @dev (????-??-??)
+  * Re-enabled SonarCloud analysis in the GitHub Actions build workflow (@zdimension).
   * Added anti-aliasing preference to control anti-aliasing of UI elements (@V-Zemlyakov).
   * Simplified Keyboard component buffer handling by removing redundant array-copy guards
     [#564] (@hewzhew).
