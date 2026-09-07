@@ -29,6 +29,13 @@ repositories {
   mavenCentral()
 }
 
+sonar {
+  properties {
+    property("sonar.projectKey", "logisim-evolution_logisim-evolution")
+    property("sonar.organization", "logisim-evolution")
+  }
+}
+
 application {
   mainClass.set("com.cburch.logisim.Main")
   applicationDefaultJvmArgs = listOf("--enable-native-access=ALL-UNNAMED")
